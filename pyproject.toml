@@ -1,0 +1,27 @@
+[project]
+name = "python-http-api-playground"
+version = "0.1.0"
+description = "IoT Inventory - Demo RESTful HTTP API (Flask + Flask-RESTful)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=2.3,<3",
+    "flask-restful>=0.3.10",
+]
+
+[dependency-groups]
+client = ["requests>=2.31"]
+dev = [{ include-group = "client" }]
+
+[project.scripts]
+iot-inventory-server = "iot_inventory.api_server:main"
+
+[build-system]
+requires = ["uv_build>=0.13.0,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.uv.build-backend]
+module-name = "iot_inventory"
