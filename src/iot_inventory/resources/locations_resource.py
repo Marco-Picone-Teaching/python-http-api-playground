@@ -1,19 +1,20 @@
-from json import JSONDecodeError
 from flask import request, Response
 from flask_restful import Resource
+from werkzeug.exceptions import BadRequest
 from iot_inventory.dto.location_entity_response import LocationEntityResponse
 from iot_inventory.dto.location_creation_request import LocationCreationRequest
 from iot_inventory.model.location_model import LocationModel
+from iot_inventory.persistence.data_manager import DataManager
 
 
 class LocationsResource(Resource):
     """ Locations Resource Class """
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         """ Initialize the Locations Resource with the provided data manager """
-        self.data_manager = kwargs['data_manager']
+        self.data_manager: DataManager = kwargs['data_manager']
 
-    def post(self):
+    def post(self) -> Response | tuple[dict, int]:
         """ Create a new Location """
         try:
 
@@ -25,48 +26,31 @@ class LocationsResource(Resource):
 
             # Check if the UUID already exists
             if location_creation_request.uuid in self.data_manager.location_dictionary:
-                return {'error': "Location UUID already exists"}, 409  # return data and 200 OK code
+                return {'error': "Location UUID already exists"}, 409
             else:
-                # Create a new Location Model
-                new_location_model = LocationModel(location_creation_request.uuid,
-                                                   location_creation_request.name,
-                                                   location_creation_request.latitude,
-                                                   location_creation_request.longitude)
+                # Map the Creation DTO to a new Location Model
+                new_location_model = LocationModel.from_creation_dto(location_creation_request)
 
                 # Add the new Location to the Data Manager
                 self.data_manager.add_location(new_location_model)
 
                 # Return the Location UUID in the Location Header
                 return Response(status=201, headers={"Location": request.url+"/"+new_location_model.uuid})  # Force the No-Content Response
-        except JSONDecodeError:
+        except BadRequest:
+            # Raised by get_json() when the body is not a valid JSON
             return {'error': "Invalid JSON ! Check the request"}, 400
+        except TypeError as e:
+            # Raised by the DTO constructor when the body has missing or unknown fields
+            return {'error': "Invalid request body ! Reason: " + str(e)}, 400
         except Exception as e:
             return {'error': "Generic Internal Server Error ! Reason: " + str(e)}, 500
 
-    def get(self):
+    def get(self) -> tuple[list[dict], int]:
         """ Get all Locations """
 
-        # Iterate over the dictionary to build a serializable device list
-        result_location_list = []
-
-        # Iterate over the dictionary to build a serializable location list
-        for location in self.data_manager.location_dictionary.values():
-
-            # Iterate over the dictionary to build a serializable device id list
-            device_id_list = []
-
-            # Iterate over the dictionary to build a serializable device id list
-            for device in location.device_dictionary.values():
-                device_id_list.append(device.uuid)
-
-            # Create a Location Entity Response Object
-            location_entity_response = LocationEntityResponse(location.uuid,
-                                                              location.name,
-                                                              location.latitude,
-                                                              location.longitude,
-                                                              device_id_list)
-            # Append the Location Entity Response to the List
-            result_location_list.append(location_entity_response.__dict__)
+        # Map each Location Model to a Location Entity Response and build a serializable location list
+        result_location_list = [LocationEntityResponse.from_model(location).__dict__
+                                for location in self.data_manager.location_dictionary.values()]
 
         # Return the Location List
         return result_location_list, 200  # return data and 200 OK code

@@ -16,7 +16,7 @@ DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 7070
 
 
-def create_server_app(data_manager=None):
+def create_server_app(data_manager: DataManager | None = None) -> Flask:
     """
     Create and configure the Flask App with the RESTful API resources (App Factory pattern).
     If no Data Manager is provided, a new empty one is created.
@@ -59,7 +59,7 @@ def create_server_app(data_manager=None):
     return app
 
 
-def load_demo_data(data_manager):
+def load_demo_data(data_manager: DataManager) -> None:
     """ Create Demo Data for the API in order to have some data to work with """
 
     # Demo Location
@@ -85,7 +85,7 @@ def load_demo_data(data_manager):
     data_manager.add_device(demo_location.uuid, demo_device)
 
 
-def main():
+def main() -> None:
     """ Create demo data and start the Flask App (entry point of the project) """
 
     # Create Data Manager and fill it with the demo data

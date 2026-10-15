@@ -4,10 +4,12 @@ from iot_inventory.model.location_model import LocationModel
 class DataManager:
     """ Data Manager Class to manage the Location and Device Data """
 
-    # Initialize the data manager with an empty dictionary to store location data
-    location_dictionary = {}
+    def __init__(self) -> None:
+        """ Initialize the data manager with an empty dictionary to store location data """
+        # Instance attribute: each DataManager has its own independent storage
+        self.location_dictionary: dict[str, LocationModel] = {}
 
-    def add_location(self, new_location):
+    def add_location(self, new_location: LocationModel) -> None:
         """ Store a new location """
 
         # Check the correct instance for the variable new_location
@@ -16,7 +18,7 @@ class DataManager:
         else:
             raise TypeError("Error adding new Location ! Only LocationModel are allowed !")
 
-    def update_location(self, updated_location):
+    def update_location(self, updated_location: LocationModel) -> None:
         """ Update an existing location """
 
         # Check the correct instance for the variable updated_location
@@ -25,12 +27,12 @@ class DataManager:
         else:
             raise TypeError("Error updating the Location ! Only LocationModel are allowed !")
 
-    def remove_location(self, location_uuid):
+    def remove_location(self, location_uuid: str) -> None:
         """ Remove a stored location """
         if location_uuid in self.location_dictionary.keys():
             del self.location_dictionary[location_uuid]
 
-    def add_device(self, location_id, new_device):
+    def add_device(self, location_id: str, new_device: DeviceModel) -> None:
         """ Store a new device """
 
         # Check the correct instance for the variable new_device
@@ -43,7 +45,7 @@ class DataManager:
         else:
             raise TypeError("Error adding new device ! Only DeviceModel are allowed !")
 
-    def update_device(self, location_id, updated_device):
+    def update_device(self, location_id: str, updated_device: DeviceModel) -> None:
         """ Update an existing device """
 
         # Check the correct instance for the variable new_device
@@ -56,7 +58,7 @@ class DataManager:
         else:
             raise TypeError("Error adding new device ! Only DeviceModel are allowed !")
 
-    def remove_device(self, location_id, device_uuid):
+    def remove_device(self, location_id: str, device_uuid: str) -> None:
         """ Remove a stored device """
 
         # Check if the required Location Id is correct
