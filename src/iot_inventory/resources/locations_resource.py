@@ -25,9 +25,10 @@ class LocationsResource(Resource):
             location_creation_request = LocationCreationRequest(**json_data)
 
             # Check if the UUID already exists
-            if location_creation_request.uuid in self.data_manager.location_dictionary:
+            if self.data_manager.location_exists(location_creation_request.uuid):
                 return {'error': "Location UUID already exists"}, 409
             else:
+
                 # Map the Creation DTO to a new Location Model
                 new_location_model = LocationModel.from_creation_dto(location_creation_request)
 
@@ -50,7 +51,7 @@ class LocationsResource(Resource):
 
         # Map each Location Model to a Location Entity Response and build a serializable location list
         result_location_list = [LocationEntityResponse.from_model(location).__dict__
-                                for location in self.data_manager.location_dictionary.values()]
+                                for location in self.data_manager.get_location_list()]
 
         # Return the Location List
         return result_location_list, 200  # return data and 200 OK code

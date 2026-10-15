@@ -1,7 +1,5 @@
 import requests
 
-import requests
-
 # Target API URL
 api_url = "http://127.0.0.1:7070/api/iot/inventory/location"
 

@@ -123,6 +123,8 @@ class LocationModel:
 The Models are stored and managed by the `DataManager` (`src/iot_inventory/persistence/data_manager.py`), which
 represents the (in-memory) storage layer. The `DataManager` accepts **only Model instances** (it checks them with
 `isinstance` and raises a `TypeError` otherwise): it knows nothing about HTTP, JSON or the format of requests and responses.
+Its internal storage is private and it is accessed only through its methods, both for writing and for reading.
+Its structure and interface are described in [Data Manager & Persistence](#data-manager--persistence).
 
 ### Step 2 - REST Resources
 
@@ -146,7 +148,7 @@ and an **item resource** (a single location, a single device). Since a Device be
   - _DELETE_: Deletes the target location with the specified `location_id`
 
 - **/location/<location_id>/device**
-  - _GET_: Returns the list of devices for the specified `location_id`
+  - _GET_: Returns the list of devices for the specified `location_id` (optionally filtered by type with the query parameter `?type=<device_type>`, e.g., `?type=device.sensor`)
   - _POST_: Creates a new device for the specified `location_id`
 
 - **/location/<location_id>/device/<device_id>**
@@ -183,7 +185,7 @@ The choice of methods and status codes follows the semantics of the HTTP verbs:
 
 Resources are registered in `create_server_app()` (`src/iot_inventory/api_server.py`). The `DataManager` is
 **injected** into every resource through `resource_class_kwargs`, so all the resources share the same storage without
-creating it themselves:
+creating it themselves (see [Data Manager & Persistence](#data-manager--persistence)):
 
 ```python
 api.add_resource(LocationsResource, ENDPOINT_PREFIX + '/location',
@@ -314,7 +316,7 @@ HTTP Client  <-- JSON -->  DTO  <-->  Resource  <-->  Model  <-->  DataManager
 ```
 
 - the **DTO** describes the representation transferred over HTTP;
-- the **Model** describes the internal state, stored by the `DataManager`;
+- the **Model** describes the internal state, stored by the `DataManager` (see [Data Manager & Persistence](#data-manager--persistence));
 - the **Resource** connects the two worlds: it receives the HTTP request, builds the request DTO, triggers the **mapping**
   between DTOs and Models, invokes the `DataManager` and builds the HTTP response with the proper status code.
 
@@ -358,7 +360,8 @@ passed to `DeviceModel.from_creation_dto(location_id, device_creation_request)`.
 The DTO contains only what the client has to send; the rest of the Model is filled in by the server.
 
 The same applies to the update of a location (`LocationResource.put()`): the `LocationUpdateRequest` does not contain the
-devices, so after the mapping the server keeps the devices of the current location. The server also checks that the
+devices, so after the mapping the server keeps the devices of the current location (retrieved with
+`self.data_manager.get_location(location_id)` at the beginning of the method). The server also checks that the
 `uuid` in the body matches the `location_id` of the URI, answering with `400 Bad Request` otherwise:
 
 ```python
@@ -370,7 +373,6 @@ else:
     updated_location_model = LocationModel.from_update_dto(location_update_request)
 
     # The update representation does not contain the devices: keep the ones of the current location
-    current_location_model = self.data_manager.location_dictionary[location_id]
     updated_location_model.device_dictionary = current_location_model.device_dictionary
 ```
 
@@ -397,14 +399,17 @@ except Exception as e:
 From `LocationResource.get()` in `src/iot_inventory/resources/location_resource.py`:
 
 ```python
-# 1. Retrieve the internal Model
-location = self.data_manager.location_dictionary[location_id]
+# 1. Retrieve the internal Model (None if it does not exist)
+location = self.data_manager.get_location(location_id)
 
-# 2. Map the Model to the response DTO
-location_entity_response = LocationEntityResponse.from_model(location)
+if location is not None:
+    # 2. Map the Model to the response DTO
+    location_entity_response = LocationEntityResponse.from_model(location)
 
-# 3. Return the representation (serialized to JSON by Flask-RESTful) with 200 OK
-return location_entity_response.__dict__, 200
+    # 3. Return the representation (serialized to JSON by Flask-RESTful) with 200 OK
+    return location_entity_response.__dict__, 200
+else:
+    return {'error': "Location Not Found !"}, 404
 ```
 
 where `LocationEntityResponse.from_model()` (`src/iot_inventory/dto/location_entity_response.py`) reshapes the internal
@@ -459,6 +464,207 @@ IDEs and static type checkers to detect errors before running the code:
 uv run --with mypy mypy src/iot_inventory --ignore-missing-imports
 ```
 
+### Step 5 - Encapsulating the Storage: the DataManager Interface
+
+The `DataManager` stores the locations in a dictionary indexed by `uuid` (its role and structure are summarized in
+[Data Manager & Persistence](#data-manager--persistence)). This dictionary is an **implementation detail**:
+the Resources must not know how the data are stored, but only **what** they can ask to the storage layer. For this reason
+the dictionary is **private** and the `DataManager` offers methods both to **write** and to **read** the data.
+
+#### A Private Storage
+
+In Python there is no `private` keyword (as in Java or C#). The convention is to prefix the name of an attribute with an
+**underscore** (`_`): it tells the other developers (and the IDEs/linters) that the attribute is internal and must not be
+used outside the class:
+
+```python
+def __init__(self) -> None:
+    # The leading underscore marks the attribute as private: it must be accessed only through the methods below
+    self._location_dictionary: dict[str, LocationModel] = {}
+```
+
+If the Resources accessed the dictionary directly (e.g., `self.data_manager.location_dictionary[location_id]`):
+
+- the internal structure would become part of the "contract" between the layers: replacing the dictionary with a database,
+  a file or a different structure would require changing **every** Resource;
+- any piece of code could add, replace or delete items **bypassing the checks** of the `DataManager`
+  (e.g., the `isinstance` check of `add_location()`), leaving the storage in an inconsistent state.
+
+#### Read Methods
+
+| Method                                                    | Returns                     | When the item does not exist                 |
+|-----------------------------------------------------------|-----------------------------|----------------------------------------------|
+| `location_exists(location_id)`                            | `bool`                      | `False`                                      |
+| `get_location(location_id)`                               | `LocationModel \| None`     | `None`                                       |
+| `get_location_list()`                                     | `list[LocationModel]`       | -                                            |
+| `device_exists(location_id, device_id)`                   | `bool`                      | `False` (also if the location does not exist)|
+| `get_device(location_id, device_id)`                      | `DeviceModel \| None`       | `None` (also if the location does not exist) |
+| `get_device_list(location_id, device_type=None)`          | `list[DeviceModel]`         | raises `IndexError` for an unknown location  |
+
+The `*_exists` methods are used when the Resource has only to check if a resource is there (e.g., before a `DELETE`
+or to detect a `409 Conflict` in a `POST`), while the `get_*` methods return the Model to work with. Returning `None`
+for a missing item makes the Resource code simple and maps naturally to the `404 Not Found` status code:
+
+```python
+location = self.data_manager.get_location(location_id)
+
+if location is not None:
+    return LocationEntityResponse.from_model(location).__dict__, 200
+else:
+    return {'error': "Location Not Found !"}, 404
+```
+
+`get_device_list()` instead raises an `IndexError` for an unknown location, as the other device methods
+(`add_device()`, `update_device()`, `remove_device()`) already do: an empty list would be ambiguous, since it would mean
+both "the location has no devices" and "the location does not exist". The Resources check `location_exists()` first.
+
+#### Why the Lists are Returned as Copies
+
+`get_location_list()` does **not** return the internal collection, but a **new list** built from it:
+
+```python
+def get_location_list(self) -> list[LocationModel]:
+    # Return a new list: adding or removing items from it does not change the internal storage
+    return list(self._location_dictionary.values())
+```
+
+In Python variables are **references** to objects: assigning or returning an object does not copy it, it gives another
+name to the **same** object (this is called **aliasing**). If a method returned the internal collection itself, the caller
+could change the storage without passing through the `DataManager`:
+
+```python
+# Hypothetical method returning the internal dictionary (what we want to avoid)
+locations = data_manager.get_location_dictionary()
+locations.clear()                  # All the locations are deleted from the storage !
+locations["x"] = "not a location"  # An invalid item is stored, bypassing the isinstance check !
+```
+
+With a copy, the caller receives its own list and can sort it, filter it or empty it without any side effect on the
+storage:
+
+```python
+location_list = data_manager.get_location_list()
+location_list.clear()                        # Only the local copy is emptied
+print(len(data_manager.get_location_list())) # The storage still contains all the locations
+```
+
+Returning a list (instead of the `dict_values` view returned by `.values()`) has two further advantages: the view is
+**live** (it changes when the dictionary changes, and iterating over it while the storage is modified raises a
+`RuntimeError`), and a `list` is a simple, well-known type that does not reveal that a dictionary is used internally.
+`get_device_list()` follows the same idea: the list comprehension that applies the filter always builds a new list.
+
+Note that this is a **shallow copy**: the list is new, but the `LocationModel` and `DeviceModel` objects inside it are the
+**same objects** stored in the `DataManager`. Changing an attribute of one of them (e.g., `location.name = "..."`) would
+change the stored data. The copy protects the **structure** of the storage (which items it contains), not the state of the
+single items. A complete protection would require a deep copy (`copy.deepcopy()`) or immutable Models, at the cost of more
+memory and computation. In this project the objects are never exposed to the clients: the Resources map them to DTOs
+before answering, and they change the stored data only through `update_location()` and `update_device()`.
+
+#### Filtering the Device List
+
+The `GET /location/<location_id>/device` endpoint supports an optional **query parameter** `type` to filter the devices
+by their type. Query parameters do not identify a new resource: they refine the representation of the same collection.
+
+```
+GET /api/iot/inventory/location/l0001/device                    -> all the devices of the location
+GET /api/iot/inventory/location/l0001/device?type=device.sensor -> only the sensors of the location
+```
+
+The query parameter is named simply `type` (and not `device_type`) because it is applied to the **device collection
+resource**: the URI `/location/<location_id>/device` already states that we are working with devices, so the association
+between the parameter and the device is **implicit**. Repeating the name of the resource in its parameters would be
+redundant (as `?device_type=` or `?device_name=`), while short names keep the URIs readable. For the same reason the
+`type` field of the device representation (`DeviceEntityResponse`) is called `type`, matching the name of the parameter
+used to filter it.
+
+The Resource reads the parameter with `reqparse` and passes it to the `DataManager`, which applies the filter while
+building the list (a missing parameter is `None` and means "no filter"):
+
+```python
+# DevicesResource.get()
+type_filter = args.get("type")
+device_model_list = self.data_manager.get_device_list(location_id, type_filter)
+```
+
+```python
+# DataManager.get_device_list()
+return [device for device in target_location.device_dictionary.values()
+        if device_type is None or device.type == device_type]
+```
+
+Filtering in the `DataManager` instead of in the Resource keeps the logic close to the data: with a database, the same
+method would become a query with a `WHERE` clause, without changing the Resource. A filter that matches no device returns
+an empty list with `200 OK`, since the collection exists but it has no matching items.
+
+## Data Manager & Persistence
+
+The `DataManager` class (`src/iot_inventory/persistence/data_manager.py`) is the **persistence layer** of the
+application: it is the **single point of access** to the stored data. Every Resource that needs to read, create, update
+or delete a location or a device asks the `DataManager`, and never touches the data directly.
+
+```
+Resources  -- add_* / update_* / remove_* -->  DataManager  -->  storage (in-memory dictionary)
+           <-- get_* / *_exists --------------
+```
+
+The `DataManager` works only with **Models** (`LocationModel`, `DeviceModel`): it knows nothing about HTTP, JSON, URIs or
+DTOs. This separation allows to change how the data are stored without changing the way they are exposed by the API, and vice versa.
+
+### Storage Structure
+
+The data are kept **in memory**, in a private dictionary of locations indexed by their `uuid`. Each `LocationModel`
+contains in turn the dictionary of its devices (`device_dictionary`), indexed by the device `uuid`:
+
+```
+_location_dictionary: dict[str, LocationModel]
+└── "l0001" -> LocationModel(uuid="l0001", name="TestBuilding", ...)
+              └── device_dictionary: dict[str, DeviceModel]
+                  ├── "d0001" -> DeviceModel(uuid="d0001", type="device.default", ...)
+                  └── "d0002" -> DeviceModel(uuid="d0002", type="device.sensor", ...)
+```
+
+This nested structure mirrors the **nested URIs** of the API (`/location/<location_id>/device/<device_id>`):
+
+- a device can be reached only through its location, so every device method requires the `location_id`;
+- removing a location also removes all its devices;
+- dictionaries indexed by `uuid` allow to find, check or replace an item directly, without scanning a list.
+
+Since the storage is in memory, **the data are lost when the server stops**. At startup `main()` creates an empty
+`DataManager` and fills it with a demo location and a demo device through `load_demo_data()`.
+
+### Lifecycle and Sharing
+
+A single `DataManager` instance is created when the application starts and is **injected** into all the Resources by
+`create_server_app()` (through `resource_class_kwargs`, see [Step 2](#step-2---rest-resources)), so that all of them work
+on the same data. The storage is an **instance attribute**: each `DataManager` has its own independent data, so tests can
+create a new, empty instance and pass it to `create_server_app(data_manager)` without affecting other tests.
+
+### Interface
+
+The methods of the `DataManager` are the only way to access the data:
+
+| Entity   | Read                                                                     | Write                                                  |
+|----------|--------------------------------------------------------------------------|--------------------------------------------------------|
+| Location | `location_exists()`, `get_location()`, `get_location_list()`            | `add_location()`, `update_location()`, `remove_location()` |
+| Device   | `device_exists()`, `get_device()`, `get_device_list()` (with type filter) | `add_device()`, `update_device()`, `remove_device()`   |
+
+The write methods check their input before changing the storage:
+
+- `add_*` and `update_*` accept only Model instances and raise a `TypeError` otherwise;
+- the device methods raise an `IndexError` if the `location_id` does not exist.
+
+The read methods return `None` (or `False`) for a missing item and **new lists** for the collections, so that the
+callers cannot change the storage by mistake. The reasons behind these choices (private storage, copies of the lists,
+filtering) are discussed in [Step 5](#step-5---encapsulating-the-storage-the-datamanager-interface).
+
+### Replacing the Storage
+
+Because the Resources depend only on the methods of the `DataManager` and not on the dictionary, the in-memory storage
+can be replaced with a persistent one (e.g., a JSON file, SQLite or another database) by **re-implementing the same
+methods** with the same signatures. For example, `get_location_list()` would run a `SELECT` query and
+`get_device_list(location_id, device_type)` would add a `WHERE` clause for the filter. The Resources, the DTOs and the
+Models would not change.
+
 ## Project Structure
 
 The project follows the `src` layout: the server code is the `iot_inventory` package in `src/`,
@@ -501,7 +707,7 @@ python-http-api-playground/
   - _location_entity_response.py_: Contains the LocationEntityResponse class that represents the response of a location entity. 
   - _location_update_request.py_: Contains the LocationUpdateRequest class that represents the request to update a location.
 - **Persistence**: Contains the data access layer for the locations and devices. Detailed in the following file:
-  - _data_manager.py_: Contains the DataManager class that handles the data access layer for the locations and devices.
+  - _data_manager.py_: Contains the DataManager class that handles the data access layer for the locations and devices. Its storage is private and both reading (`get_*`, `*_exists`) and writing (`add_*`, `update_*`, `remove_*`) go through its methods (see [Data Manager & Persistence](#data-manager--persistence)).
 - **Clients**: Contains the client to interact with the API. Detailed in the following file:
   - _create_and_get_location.py_: Implements the client to create a location and get the list of locations through the implemented API.
   - _create_location.py_: Implements the client to create a location through the implemented API.

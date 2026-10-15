@@ -18,12 +18,10 @@ class LocationResource(Resource):
     def get(self, location_id: str) -> tuple[dict, int]:
         """ HTTP GET Method to retrieve a single Location Resource """
 
-        # Check if the location exists in the dictionary
-        if location_id in self.data_manager.location_dictionary:
+        # Retrieve the Location Model from the DataManager (None if it does not exist)
+        location = self.data_manager.get_location(location_id)
 
-            # Retrieve the Location Model from the DataManager
-            location = self.data_manager.location_dictionary[location_id]
-
+        if location is not None:
             # Map the Location Model to the Location Entity Response DTO
             location_entity_response = LocationEntityResponse.from_model(location)
 
@@ -35,9 +33,9 @@ class LocationResource(Resource):
     def delete(self, location_id: str) -> Response | tuple[dict, int]:
         """ HTTP DELETE Method to remove a single Location Resource """
         try:
-            # Check if the location exists in the dictionary
-            if location_id in self.data_manager.location_dictionary:
-                # Remove the location from the dictionary
+            # Check if the location exists
+            if self.data_manager.location_exists(location_id):
+                # Remove the location from the DataManager
                 self.data_manager.remove_location(location_id)
 
                 # Return 204 No Content
@@ -51,8 +49,10 @@ class LocationResource(Resource):
         """ HTTP PUT Method to update a single Location Resource """
 
         try:
-            # Check if the location exists in the dictionary
-            if location_id in self.data_manager.location_dictionary:
+            # Retrieve the current Location Model from the DataManager (None if it does not exist)
+            current_location_model = self.data_manager.get_location(location_id)
+
+            if current_location_model is not None:
 
                 # The boolean flag force the parsing of POST data as JSON irrespective of the mimetype
                 json_data = request.get_json(force=True)
@@ -66,10 +66,9 @@ class LocationResource(Resource):
                     updated_location_model = LocationModel.from_update_dto(location_update_request)
 
                     # The update representation does not contain the devices: keep the ones of the current location
-                    current_location_model = self.data_manager.location_dictionary[location_id]
                     updated_location_model.device_dictionary = current_location_model.device_dictionary
 
-                    # Update the location in the dictionary
+                    # Update the location in the DataManager
                     self.data_manager.update_location(updated_location_model)
 
                     # Return 204 No Content

@@ -18,17 +18,14 @@ class DevicesResource(Resource):
 
         try:
             # Check if the location is correct
-            if location_id in self.data_manager.location_dictionary:
-
-                # Retrieve Location through its location_id
-                target_location = self.data_manager.location_dictionary[location_id]
+            if self.data_manager.location_exists(location_id):
 
                 # The boolean flag force the parsing of POST data as JSON irrespective of the mimetype
                 json_data = request.get_json(force=True)
                 device_creation_request = DeviceCreationRequest(**json_data)
 
                 # Check if the device is new or if it already exists
-                if device_creation_request.uuid in target_location.device_dictionary:
+                if self.data_manager.device_exists(location_id, device_creation_request.uuid):
                     return {'error': "Device UUID already exists"}, 409
                 else:
 
@@ -55,7 +52,7 @@ class DevicesResource(Resource):
         """ Retrieve all Devices in the specified Location"""
 
         # Check if the provided Location Id in the path is correct
-        if location_id in self.data_manager.location_dictionary:
+        if self.data_manager.location_exists(location_id):
 
             # Check for query arguments
             parser = reqparse.RequestParser()
@@ -65,20 +62,14 @@ class DevicesResource(Resource):
             # parser.add_argument('locationId', location='args', required=True)
             args = parser.parse_args()
 
-            # Retrieve filter values
-            type_filter = None
-            if "type" in args:
-                type_filter = args["type"]
+            # Retrieve filter value (None if the query argument is not provided)
+            type_filter = args.get("type")
 
-            # Retrieve Location through its location_id
-            target_location = self.data_manager.location_dictionary[location_id]
+            # Retrieve the devices of the location, filtered by type if requested
+            device_model_list = self.data_manager.get_device_list(location_id, type_filter)
 
             # Map each Device Model to a Device Entity Response and build a serializable device list
-            device_list = []
-
-            # Filter the devices based on the type
-            for device in target_location.device_dictionary.values():
-                device_list.append(DeviceEntityResponse.from_model(device).__dict__)
+            device_list = [DeviceEntityResponse.from_model(device).__dict__ for device in device_model_list]
 
             # Return the filtered list
             return device_list, 200  # return data and 200 OK code

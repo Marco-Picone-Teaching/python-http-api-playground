@@ -15,15 +15,14 @@ class DeviceResource(Resource):
         """ GET Method to retrieve a specific device by its location_id and device_id """
 
         # Check if the provided Location Id in the path is correct
-        if location_id in self.data_manager.location_dictionary:
+        if self.data_manager.location_exists(location_id):
 
-            # Retrieve Location through its location_id
-            target_location = self.data_manager.location_dictionary[location_id]
+            # Retrieve the Device Model from the DataManager (None if it does not exist)
+            device = self.data_manager.get_device(location_id, device_id)
 
-            # Check if the provided Device Id in the path is correct
-            if device_id in target_location.device_dictionary:
+            if device is not None:
                 # Map the Device Model to the Device Entity Response DTO
-                device_entity_response = DeviceEntityResponse.from_model(target_location.device_dictionary[device_id])
+                device_entity_response = DeviceEntityResponse.from_model(device)
 
                 # Return the device data and 200 OK code
                 return device_entity_response.__dict__, 200
@@ -39,12 +38,10 @@ class DeviceResource(Resource):
         try:
 
             # Check if the provided Location Id in the path is correct
-            if location_id in self.data_manager.location_dictionary:
+            if self.data_manager.location_exists(location_id):
 
-                # Retrieve Location through its location_id
-                target_location = self.data_manager.location_dictionary[location_id]
-
-                if device_id in target_location.device_dictionary:
+                # Check if the provided Device Id in the path is correct
+                if self.data_manager.device_exists(location_id, device_id):
                     self.data_manager.remove_device(location_id, device_id)
                     return Response(status=204)
                 else:
@@ -60,13 +57,10 @@ class DeviceResource(Resource):
 
         try:
             # Check if the provided Location Id in the path is correct
-            if location_id in self.data_manager.location_dictionary:
-
-                # Retrieve Location through its location_id
-                target_location = self.data_manager.location_dictionary[location_id]
+            if self.data_manager.location_exists(location_id):
 
                 # Check if the provided Device Id in the path is correct
-                if device_id in target_location.device_dictionary:
+                if self.data_manager.device_exists(location_id, device_id):
                     # The boolean flag force the parsing of POST data as JSON irrespective of the mimetype
                     json_data = request.get_json(force=True)
 
