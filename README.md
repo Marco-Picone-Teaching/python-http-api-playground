@@ -11,6 +11,8 @@ The structure of the playground is the following:
   - [Step 2 - REST Resources](#step-2---rest-resources)
   - [Step 3 - Data Models vs Data Transfer Objects (DTOs)](#step-3---data-models-vs-data-transfer-objects-dtos)
   - [Step 4 - Mapping and Decoupling: Model, Resource and DTO](#step-4---mapping-and-decoupling-model-resource-and-dto)
+  - [Step 5 - Encapsulating the Storage: the DataManager Interface](#step-5---encapsulating-the-storage-the-datamanager-interface)
+- [Data Manager & Persistence](#data-manager--persistence)
 - [Project Structure](#project-structure)
 - [Running the Project](#running-the-project)
 - [Postman Collection](#postman-collection)
@@ -63,12 +65,13 @@ uv export --no-hashes --no-dev --group client -o requirements.txt
 ## Design Walkthrough: from Data Modeling to the REST API
 
 This section describes the design path followed to build the API, from the identification of the
-data to the HTTP interface exposed to the clients. The path has four steps:
+data to the HTTP interface exposed to the clients. The path has five steps:
 
 1. **Data Modeling**: identify the entities of the application domain and describe them with Model classes.
 2. **REST Resources**: decide which resources are exposed, how they are addressed (URIs) and which HTTP methods they support.
 3. **Data Models vs DTOs**: define the representations of the resources exchanged with the clients, separating them from the internal models.
 4. **Mapping and Decoupling**: connect Models, Resources and DTOs so that each layer can evolve independently.
+5. **Encapsulating the Storage**: hide the internal storage behind the methods of the `DataManager`, used by the Resources both to read and to write the data.
 
 ### Application Scenario
 
